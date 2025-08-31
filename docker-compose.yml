@@ -1,0 +1,113 @@
+services:
+  mariadb:
+    image: docker.io/bitnami/mariadb:latest
+    container_name: moodle_mariadb
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=${MOODLE_DATABASE_NAME}
+      - MARIADB_USER=${MOODLE_DATABASE_USER}
+      - MARIADB_PASSWORD=${MOODLE_DATABASE_PASSWORD}
+      - MARIADB_CHARACTER_SET=utf8mb4
+      - MARIADB_COLLATE=utf8mb4_unicode_ci
+      - ALLOW_EMPTY_PASSWORD=no
+    volumes:
+      # antes: - mariadb_data:/bitnami/mariadb
+      - ./persist/mariadb:/bitnami/mariadb
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p${MARIADB_ROOT_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: docker.io/bitnami/redis:latest
+    container_name: moodle_redis
+    restart: unless-stopped
+    environment:
+      - TZ=${TZ}
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ALLOW_EMPTY_PASSWORD=no
+    volumes:
+      - redis_data:/bitnami/redis/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a ${REDIS_PASSWORD} ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  moodle:
+    image: docker.io/bitnami/moodle:latest
+    container_name: moodle_app
+    depends_on:
+      - mariadb
+      - redis
+    restart: unless-stopped
+
+    # Expuesto SOLO al host: Nginx en el host hace de proxy
+    ports:
+      - "127.0.0.1:${MOODLE_PORT}:8080"
+
+    environment:
+      - TZ=${TZ}
+
+      # Admin inicial
+      - MOODLE_USERNAME=${MOODLE_USERNAME}
+      - MOODLE_PASSWORD=${MOODLE_PASSWORD}
+      - MOODLE_EMAIL=${MOODLE_EMAIL}
+      - MOODLE_SITE_NAME=${MOODLE_SITE_NAME}
+      - MOODLE_LANGUAGE=${MOODLE_LANGUAGE}
+
+      # Base de datos
+      - MOODLE_DATABASE_TYPE=mariadb
+      - MOODLE_DATABASE_HOST=mariadb
+      - MOODLE_DATABASE_PORT_NUMBER=3306
+      - MOODLE_DATABASE_NAME=${MOODLE_DATABASE_NAME}
+      - MOODLE_DATABASE_USER=${MOODLE_DATABASE_USER}
+      - MOODLE_DATABASE_PASSWORD=${MOODLE_DATABASE_PASSWORD}
+
+      # Redis (sesiones/caché)
+      - MOODLE_ENABLE_REDIS_SESSION=true
+      - MOODLE_REDIS_HOST=redis
+      - MOODLE_REDIS_PORT_NUMBER=6379
+      - MOODLE_REDIS_PASSWORD=${REDIS_PASSWORD}
+      - MOODLE_REDIS_PREFIX=moodle
+
+      # Cron interno
+      - MOODLE_ENABLE_CRON=yes
+
+      # Reverse proxy (Nginx con TLS en el host)
+      - MOODLE_HOST=${MOODLE_HOST}     # dominio público, sin http/https
+      - MOODLE_REVERSEPROXY=yes
+      - MOODLE_SSLPROXY=yes
+
+      # PHP
+      - PHP_MEMORY_LIMIT=512M
+      - PHP_UPLOAD_MAX_FILESIZE=128M
+      - PHP_POST_MAX_SIZE=128M
+      - PHP_MAX_EXECUTION_TIME=300
+
+      # SMTP (opcional)
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_PORT=${SMTP_PORT}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - SMTP_PROTOCOL=${SMTP_PROTOCOL}
+
+    volumes:
+      # antes:
+      # - moodle_app:/bitnami/moodle
+      # - moodle_data:/bitnami/moodledata
+      - ./persist/moodle_app:/bitnami/moodle
+      - ./persist/moodle_data:/bitnami/moodledata
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8080/login/index.php >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  # quitamos mariadb_data, moodle_app y moodle_data porque ahora son bind mounts
+  redis_data:
