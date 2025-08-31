@@ -37,3 +37,4 @@ trashdir/
 
 # Persist volumes
 persist/
+config.php
